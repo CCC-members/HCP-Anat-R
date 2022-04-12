@@ -1,7 +1,7 @@
 ## This is implementation for the Causal Analysis on HCP data for paper
 ##Causal Effects of Cingulate Morphology on Executive functions in Healthy Young Adults
 ##Code is based on book and related code by
-##Robins M. James, Miguel A. Hern·n. 2020. 
+##Robins M. James, Miguel A. Hern√°n. 2020. 
 ##Foundations of Agnostic Statistics Causal Inference - What If. 
 ##Chapman & Hall/CRC.
 
@@ -46,37 +46,57 @@ colnames(score1)=colnames(score2)=colnames(score3)=c("ID","TestScore","TestType"
 plotLM=function(dataarr,score,ytitle)
 {
   dataplot=NULL
+  annText=NULL
   for (i in 1:ncol(dataarr)) 
   {
     col=colnames(dataarr)[i]
-    Size=scale(dataarr[,i])
+    Size=(dataarr[,i])
     type=rep(col,n)
     temp=cbind.data.frame(score,Size,type)
     #temp=rbind.data.frame(temp,temp) #use when both
-    dataplot=rbind.data.frame(dataplot,temp)
-  }
+    dataplot=rbind.data.frame(dataplot,temp[,-c(4:6)])
+    dataplot$Size=as.numeric(scale(dataarr[,i]))
+    ss=summary(lm(TestScore~Size+Size:a+Size:as.factor(r),data=temp))
+    ss=paste("p = ", signif(ss$coefficients[2,4], digits = 4), sep = "")
+    
+    ann_textTMP = data.frame(TestScore = 75,Size = 0,lab = ss,
+                             TestType=score$TestType[1],
+                           type=factor(col,
+                                       levels=c("ACC Area","ACC Thickness","ACC Volume",
+                                                "PCC Area", "PCC Thickness","PCC Volume"
+                                       )))
+    annText=rbind.data.frame(annText,ann_textTMP)
+    }
   
   dataplot$typef=as.factor(dataplot$type)
   my.formula = y ~ x
   
-  ggplot(transform(dataplot,
+  p=ggplot(transform(dataplot,
                    type=factor(type,
                                levels=c("ACC Area","ACC Thickness","ACC Volume",
-                                        "PCC Area", "PCC Thickness","PCC Volume"
-                               ))),
-         aes(y= TestScore, x=Size, color = TestType)) +
+                                       "PCC Area", "PCC Thickness","PCC Volume"
+                                        ))),
+         aes(y= TestScore, x=Size, color = "blue"),show.legend = FALSE) +
+    #geom_line(color="blue",alpha = 0.3) +
     geom_point(color="blue",alpha = 0.3) +
     facet_wrap(type~., scales = "fixed") +
+    
     geom_smooth(method = "lm", formula = my.formula, se = F,color="red",alpha=.9)+
-    stat_fit_glance(method = 'lm',
-                    method.args = list(formula = my.formula),
-                    geom = 'text',
-                    aes(label = paste("P-value = ", signif(..p.value.., digits = 4), sep = ""),alpha=.99),
-                    label.x =0 , label.y = 55, size = 4,color="black", fontface = "bold")+
-    labs(x="Anatomical measurements",y=ytitle)+
+   
+     ylim(70,150)+
+
+     labs(x="Anatomical measurements",y=ytitle)+
+    
     theme(panel.background = element_rect(fill = "white", 
                                           colour = "grey50"))
   
+  p=p + geom_text(
+    data    = annText,
+    mapping = aes(x = -Inf, y = -Inf,label = lab),
+    hjust   = -0.2,
+    vjust   = -1,show.legend = FALSE,color="black")
+  p
+  return (p)
 }
 
 dataarr=dataarr[,-(1:4)]#exlude id and Y
@@ -94,7 +114,7 @@ ytitle="List Sort"
 plotLM(dataarr,score,ytitle)
 
 ######### causal analysis ########
-X=c("ACC_Area","PCC_Area")
+X=c("ACC_Area","PCC_Area","ACC_Thick","PCC_Thick")
 C=c("Gender","Age","Hand","Race","GMVol","Fid","Mid")
 Y=c("CardSort","Flanker","ListSort")
 
@@ -127,7 +147,7 @@ for (x in X)
   {
     fdata=data[,c("ID",x,y,C)]
     fdata$wt=W
-    H1=as.formula(paste0(y,"~",x)
+    H1=as.formula(paste0(y,"~",x,"+",x,":Age+",x,":as.factor(Race)"))
     
     msm = geeglm(H1,data = fdata,weights = wt,id = ID,
                  corstr = "independence")
@@ -143,14 +163,13 @@ for (x in X)
     
     tres=cbind.data.frame(xout,yout,p,beta, lcl, ucl)
     
-    #evalue from lm
-    
-    He=as.formula(paste0(y,"~",x,"+",paste(C, collapse="+")))
-    ols=lm(He, data = fdata,weights = wt)
-    e=evalues.OLS(est = ols$coefficients[2],
-                  se=summary(ols)$coefficients[2, 'Std. Error'],
-                  summary(ols)$sigma,
-                  delta = (mean(fdata[,x])))
+   #evalue from msm
+
+    e=evalues.OLS(est = tres[2,"beta"],
+            se = SE[2],
+            sd = sd(fdata[,y]),
+            delta = mean(fdata[,x])
+            )
     
     tresen=cbind.data.frame(tres[2,],
                             e['RR',1], e['E-values',1],mean(fdata[,x]))
